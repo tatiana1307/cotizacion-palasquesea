@@ -283,8 +283,9 @@
     .toolbar{display:none !important;}
     .sheet{box-shadow:none; margin:0; width:auto; min-height:auto;}
     [contenteditable]:hover, [contenteditable]:focus{background:transparent !important; box-shadow:none !important;}
-    .gallery-head{break-before:page;}
-    .important, .totals, .gallery figure, .sign{break-inside:avoid;}
+    .break-page{break-before:page; page-break-before:always;}
+    .gallery-head{break-before:page; page-break-before:always;}
+    .important, .totals, .gallery figure, .sign, .pay, .event-box{break-inside:avoid;}
     table.quote{break-inside:auto;}
     tr{break-inside:avoid;}
     .tip, .tax-check{display:none !important;}
@@ -293,6 +294,19 @@
     .taxes-empty{display:none !important;}
     .del-row, .add-row-wrap, .btn-add, .del-note{display:none !important;}
     table.quote th:last-child, table.quote td:last-child{display:none !important;}
+    /* Distribución vertical para evitar grandes espacios en blanco */
+    .pad{padding-top:10px;}
+    .letter-date{margin:30px 0 16px;}
+    h2.block{margin-top:36px; margin-bottom:18px;}
+    .event-col{padding-top:24px; padding-bottom:24px;}
+    table.quote thead th{padding-top:14px; padding-bottom:14px;}
+    table.quote tbody td{padding-top:18px; padding-bottom:18px;}
+    .totals{margin-top:40px;}
+    .important{padding:22px 22px;}
+    .important li{margin-bottom:14px; line-height:1.6;}
+    .pay{margin-top:30px;}
+    .sign{margin-top:60px;}
+    .sign .cordial{margin-bottom:32px;}
   }
   /* ===== Celular / tablet (solo pantalla, NO afecta impresión/PDF) ===== */
   @media screen and (max-width:820px){
@@ -401,7 +415,7 @@
     </div>
     <div class="lh-doc">
       <div class="lh-doc-title">COTIZACIÓN</div>
-      <div class="lh-doc-num">N.º <b contenteditable>20260924-18</b></div>
+      <div class="lh-doc-num">N.º <b contenteditable id="cotizNum">20260924-18</b></div>
     </div>
   </div>
 
@@ -505,7 +519,7 @@
     </div>
 
     <!-- IMPORTANTE -->
-    <h2 class="block">Importante</h2>
+    <h2 class="block break-page">Importante</h2>
     <div class="important">
       <ul>
         <li>Los valores de las opciones <b>incluyen los implementos y accesorios</b> para el juego.</li>
@@ -587,8 +601,13 @@
 
   // ==== Descargar / Guardar como PDF (impresión nativa = dimensiones e imágenes perfectas) ====
   function generarPDF(){
-    // Abre el cuadro de "Guardar como PDF" del dispositivo. Salida A4 exacta, imágenes nítidas.
+    // El nombre sugerido del PDF sale del título del documento: Cotizacion_<número>
+    var el=document.getElementById('cotizNum');
+    var num=(el?el.textContent:'').replace(/^N\.º\s*/i,'').trim().replace(/\s+/g,'');
+    var prev=document.title;
+    document.title='Cotizacion_'+(num||'SN');
     window.print();
+    setTimeout(function(){ document.title=prev; }, 1500);
   }
 
   // ==== Barra de formato: recuerda la última selección dentro de un campo editable ====
