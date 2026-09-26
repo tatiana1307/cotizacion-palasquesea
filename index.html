@@ -518,6 +518,11 @@
       </div>
     </div>
 
+    <div class="add-row-wrap">
+      <button class="btn-add btn-note" onclick="addNote('notesImp')">🗒 Agregar nota (opcional)</button>
+    </div>
+    <div id="notesImp"></div>
+
     <div class="totals">
       <div class="box">
         <div class="row mega"><span>VALOR TOTAL</span><span id="grandTotal">$0</span></div>
@@ -738,8 +743,8 @@
   }
   updateTaxes();
   recalc(); // total inicial al cargar
-  function addNote(){
-    var box=document.getElementById('notes');
+  function addNote(boxId){
+    var box=document.getElementById(boxId||'notes');
     var div=document.createElement('div');
     div.className='note-item';
     div.innerHTML='<span class="ico">🗒</span>'+
