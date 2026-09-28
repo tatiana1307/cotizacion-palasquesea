@@ -170,7 +170,11 @@
   .tax-check{display:flex; align-items:center; gap:6px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:#585057; font-weight:700; white-space:nowrap; cursor:pointer;}
   .tax-check input{width:16px; height:16px; accent-color:var(--gold); cursor:pointer;}
   .tax-name{flex:1; font-weight:600; color:#333;}
-  .tax-amount{flex:0 0 120px; width:120px; max-width:120px; min-width:0;}
+  .tax-pct{flex:0 0 auto; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 8px; font-size:12px;
+    background:#fff; color:#262626; cursor:pointer;}
+  .tax-pct:hover{border-color:var(--gold);}
+  .tax-pct-label{display:none; color:#585057; font-weight:700; font-size:11.5px; margin-left:6px;}
+  .tax-amount-val{flex:0 0 110px; width:110px; text-align:right; font-weight:700; color:#262626; font-variant-numeric:tabular-nums;}
   .tip{display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%;
     background:var(--slate); color:#fff; font-size:10px; font-weight:800; font-style:italic; cursor:help; position:relative; margin-left:4px;}
   .tip::after{content:attr(data-tip); position:absolute; bottom:135%; left:50%; transform:translateX(-50%);
@@ -179,11 +183,11 @@
     opacity:0; visibility:hidden; transition:opacity .15s;}
   .tip:hover::after, .tip:focus::after{opacity:1; visibility:visible;}
   .taxes-empty{ }
-  .totals{margin-top:14px; display:flex; justify-content:flex-end;}
-  .totals .box{width:320px; border:2px solid #262626; border-radius:12px; overflow:hidden;}
-  .totals .row{display:flex; justify-content:space-between; padding:9px 14px; font-size:13px; border-bottom:1px solid var(--line);}
-  .totals .row.grand{background:var(--gold); color:#2a2000; font-weight:800; font-size:15px; border:none;}
-  .totals .row.mega{background:#262626; color:var(--gold); font-weight:800; font-size:15px; border:none;}
+  /* Líneas de Subtotal y Total */
+  .sum-line{display:flex; justify-content:space-between; align-items:center; padding:11px 16px; font-size:13px; border-radius:8px;}
+  .sum-line.sub{background:#f7f7f7; border:1px solid var(--line); font-weight:700; color:#262626; margin:16px 0 0;}
+  .sum-line.total{background:#262626; color:var(--gold); font-weight:800; font-size:16px; letter-spacing:.5px; margin-top:12px;}
+  .sum-line span:last-child{font-variant-numeric:tabular-nums;}
 
   /* ===== Importante ===== */
   .important{background:#fff7e6; border:1px solid #f0d48a; border-left:5px solid var(--gold); border-radius:10px; padding:14px 16px 14px 18px; margin-top:8px;}
@@ -268,7 +272,8 @@
   body.pdf-capturing .totals .box{width:320px !important;}
   body.pdf-capturing input.amount{background:transparent !important; box-shadow:none !important; border-color:transparent !important;}
   /* En PDF/impresión: ocultar casilla, tooltip, filas no aplicadas y el bloque si ninguna aplica */
-  body.pdf-capturing .tip, body.pdf-capturing .tax-check{display:none !important;}
+  body.pdf-capturing .tip, body.pdf-capturing .tax-check, body.pdf-capturing .tax-pct{display:none !important;}
+  body.pdf-capturing .tax-pct-label{display:inline !important;}
   body.pdf-capturing .tax-off{display:none !important;}
   body.pdf-capturing .tax-row{opacity:1 !important;}
   body.pdf-capturing .taxes-empty{display:none !important;}
@@ -290,7 +295,8 @@
     .lastpage-foot{break-inside:avoid;}
     table.quote{break-inside:auto;}
     tr{break-inside:avoid;}
-    .tip, .tax-check{display:none !important;}
+    .tip, .tax-check, .tax-pct{display:none !important;}
+    .tax-pct-label{display:inline !important;}
     .tax-off{display:none !important;}
     .tax-row{opacity:1 !important;}
     .taxes-empty{display:none !important;}
@@ -483,29 +489,51 @@
 
     <div id="notes"></div>
 
-    <!-- Impuestos y retenciones (fijos) -->
+    <!-- SUBTOTAL -->
+    <div class="sum-line sub"><span>Subtotal</span><span id="subTotal">$0</span></div>
+
+    <!-- Impuestos y retenciones (calculados sobre el subtotal) -->
     <div class="taxes">
       <h3>Impuestos y retenciones</h3>
       <div class="tax-row">
         <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
         <span class="tax-name">Retención en la fuente
-          <span class="tip" tabindex="0" data-tip="Retención del impuesto de renta que el cliente (agente retenedor) descuenta del pago. Marque «Aplica» si corresponde.">i</span>
+          <span class="tip" tabindex="0" data-tip="Retención del impuesto de renta que el cliente (agente retenedor) descuenta del pago. Se calcula: subtotal × % seleccionado.">i</span>
+          <span class="tax-pct-label"></span>
         </span>
-        <input class="amount tax-amount" inputmode="numeric" placeholder="$0">
+        <select class="tax-pct">
+          <option value="2.5">2,5%</option>
+          <option value="3.5">3,5%</option>
+          <option value="4">4%</option>
+        </select>
+        <span class="tax-amount-val">$0</span>
       </div>
       <div class="tax-row">
         <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
         <span class="tax-name">Retención de ICA
-          <span class="tip" tabindex="0" data-tip="Retención del Impuesto de Industria y Comercio (ICA), según el municipio y la actividad económica.">i</span>
+          <span class="tip" tabindex="0" data-tip="Retención del Impuesto de Industria y Comercio (Bogotá). Tarifas por mil según la actividad económica. Se calcula: subtotal × % seleccionado.">i</span>
+          <span class="tax-pct-label"></span>
         </span>
-        <input class="amount tax-amount" inputmode="numeric" placeholder="$0">
+        <select class="tax-pct">
+          <option value="0.414">4,14 × mil (0,414%)</option>
+          <option value="0.69">6,9 × mil (0,69%)</option>
+          <option value="0.766">7,66 × mil (0,766%)</option>
+          <option value="0.966">9,66 × mil (0,966%)</option>
+          <option value="1.104">11,04 × mil (1,104%)</option>
+          <option value="1.38">13,8 × mil (1,38%)</option>
+        </select>
+        <span class="tax-amount-val">$0</span>
       </div>
       <div class="tax-row">
         <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
         <span class="tax-name">Impuesto al consumo
-          <span class="tip" tabindex="0" data-tip="Impuesto Nacional al Consumo (INC) aplicable a ciertos productos o servicios, p. ej. gastronomía y licores.">i</span>
+          <span class="tip" tabindex="0" data-tip="Impuesto Nacional al Consumo (INC) — tarifa del 8% aplicable a gastronomía y bebidas. Se calcula: subtotal × %.">i</span>
+          <span class="tax-pct-label"></span>
         </span>
-        <input class="amount tax-amount" inputmode="numeric" placeholder="$0">
+        <select class="tax-pct">
+          <option value="8">8%</option>
+        </select>
+        <span class="tax-amount-val">$0</span>
       </div>
     </div>
 
@@ -514,11 +542,8 @@
     </div>
     <div id="notesImp"></div>
 
-    <div class="totals">
-      <div class="box">
-        <div class="row mega"><span>VALOR TOTAL</span><span id="grandTotal">$0</span></div>
-      </div>
-    </div>
+    <!-- TOTAL -->
+    <div class="sum-line total"><span>TOTAL</span><span id="grandTotal">$0</span></div>
 
     <!-- IMPORTANTE -->
     <h2 class="block break-page">Importante</h2>
@@ -645,14 +670,25 @@
     return '$'+n.toLocaleString('es-CO');     // separador de miles con puntos
   }
   function recalc(){
-    var total=0;
-    document.querySelectorAll('#items .amount').forEach(function(c){ total+=parseMoney(c.value); });
-    // sumar solo los impuestos/retenciones marcados como "Aplica"
+    // 1) Subtotal = suma de los ítems
+    var sub=0;
+    document.querySelectorAll('#items .amount').forEach(function(c){ sub+=parseMoney(c.value); });
+    document.getElementById('subTotal').textContent=formatMoney(sub);
+    // 2) Cada impuesto = subtotal × % seleccionado; solo suma si está "Aplica"
+    var impuestos=0;
     document.querySelectorAll('.tax-row').forEach(function(row){
       var chk=row.querySelector('.tax-aplica');
-      if(chk && chk.checked){ total+=parseMoney(row.querySelector('.tax-amount').value); }
+      var sel=row.querySelector('.tax-pct');
+      var out=row.querySelector('.tax-amount-val');
+      var lbl=row.querySelector('.tax-pct-label');
+      var pct=sel?parseFloat(sel.value)||0:0;
+      var val=Math.round(sub*pct/100);
+      if(out) out.textContent=formatMoney(val);
+      if(lbl) lbl.textContent=' ('+String(pct).replace('.',',')+'%)';
+      if(chk && chk.checked){ impuestos+=val; }
     });
-    document.getElementById('grandTotal').textContent=formatMoney(total);
+    // 3) Total = subtotal + impuestos aplicados
+    document.getElementById('grandTotal').textContent=formatMoney(sub+impuestos);
   }
   // Muestra/oculta filas de impuestos según "Aplica" (los no marcados no salen en el PDF)
   function updateTaxes(){
@@ -699,18 +735,16 @@
   document.querySelectorAll('#items .amount').forEach(function(el){
     el.value = parseMoney(el.value)>0 ? formatMoney(parseMoney(el.value)) : '';
   });
-  // Impuestos: formatea el valor al escribir y recalcula al marcar/desmarcar "Aplica"
+  // Impuestos: recalcula al cambiar el % o al marcar/desmarcar "Aplica"
   var taxesBox=document.querySelector('.taxes');
   if(taxesBox){
-    taxesBox.addEventListener('input', function(e){
-      if(e.target.classList.contains('tax-amount')){ formatAmount(e.target); }
-    });
     taxesBox.addEventListener('change', function(e){
       if(e.target.classList.contains('tax-aplica')){ updateTaxes(); recalc(); }
+      if(e.target.classList.contains('tax-pct')){ recalc(); }
     });
   }
   updateTaxes();
-  recalc(); // total inicial al cargar
+  recalc(); // subtotal, impuestos y total iniciales al cargar
   function addNote(boxId){
     var box=document.getElementById(boxId||'notes');
     var div=document.createElement('div');
