@@ -1058,46 +1058,56 @@
         evF=joinC(col[0]); evH=joinC(col[1]); evP=joinC(col[2]);
       }
     }
-    // Ítems entre "DETALLE DE LA COTIZACIÓN" y "Subtotal"
-    var start=-1,end=-1;
-    for(var i=0;i<lines.length;i++){ var c=comp(lines[i]); if(c.indexOf('DETALLEDELACOTIZ')>=0 && start<0) start=i; if(start>=0 && c.indexOf('SUBTOTAL')===0){ end=i; break; } }
-    var items=[], cur=null;
-    if(start>=0){
-      var e2=(end>=0?end:lines.length);
-      for(var i=start+1;i<e2;i++){
+    // ===== Módulos: cada "Detalle de la cotización" con sus ítems e impuestos =====
+    function parseItemsRange(a,b){
+      var out=[], cur=null;
+      for(var i=a;i<b;i++){
         var raw=lines[i].trim(), c=comp(raw);
         if(c.indexOf('DESCRIPCI')>=0 || c.indexOf('CANT')===0) continue;
         if(/^[-−]?\$\s?[\d.,]+$/.test(raw)){ if(cur && !cur.value){ cur.value=raw.replace(/\s/g,'').replace('−','-'); } continue; }
         var mItem=raw.match(/^(\d+)\s+(.+)/);
-        if(mItem){ var d=mItem[2].trim(), v=''; var mv=d.match(/([-−]?\$[\d.,]+)\s*$/); if(mv){ v=mv[1].replace(/\s/g,'').replace('−','-'); d=d.slice(0,mv.index).trim(); } cur={qty:mItem[1],desc:d,value:v}; items.push(cur); continue; }
+        if(mItem){ var d=mItem[2].trim(), v=''; var mv=d.match(/([-−]?\$[\d.,]+)\s*$/); if(mv){ v=mv[1].replace(/\s/g,'').replace('−','-'); d=d.slice(0,mv.index).trim(); } cur={qty:mItem[1],desc:d,value:v}; out.push(cur); continue; }
         var mInline=raw.match(/^(.+?)\s+([-−]?\$[\d.,]+)$/);
-        if(mInline){ cur={qty:'1',desc:mInline[1].trim(),value:mInline[2].replace(/\s/g,'').replace('−','-')}; items.push(cur); continue; }
+        if(mInline){ cur={qty:'1',desc:mInline[1].trim(),value:mInline[2].replace(/\s/g,'').replace('−','-')}; out.push(cur); continue; }
       }
+      return out.filter(function(it){ return it.value && parseMoney(it.value)>0 && it.value.charAt(0)!=='-'; });
     }
-    items=items.filter(function(it){ return it.value && parseMoney(it.value)>0 && it.value.charAt(0)!=='-'; });
-    // Impuestos entre Subtotal y TOTAL
-    var taxes=[];
-    if(end>=0){
-      for(var i=end+1;i<lines.length;i++){
-        var c=comp(lines[i]); if(c.indexOf('TOTAL')===0) break;
-        var mv=lines[i].match(/\$[\d.,]+/); if(!mv) continue;
+    function parseTaxesRange(a,b){
+      var out=[];
+      for(var i=a;i<b;i++){
+        var c=comp(lines[i]); var mv=lines[i].match(/\$[\d.,]+/); if(!mv) continue;
         var val=parseMoney(mv[0]); var idx=-1;
         if(c.indexOf('RETENCIONENLAFUENTE')>=0) idx=0;
         else if(c.indexOf('RETEICA')>=0 || c.indexOf('RETELCA')>=0) idx=1;
         else if(c.indexOf('IMPUESTOALCONSUMO')>=0) idx=2;
-        if(idx>=0 && val>0) taxes.push({idx:idx, val:val});
+        if(idx>=0 && val>0) out.push({idx:idx, val:val});
       }
+      return out;
     }
+    var modStarts=[];
+    for(var i=0;i<lines.length;i++){ if(comp(lines[i]).indexOf('DETALLEDELACOTIZ')>=0) modStarts.push(i); }
+    var modules=[];
+    for(var m=0;m<modStarts.length;m++){
+      var s=modStarts[m], nx=(m+1<modStarts.length)?modStarts[m+1]:lines.length;
+      var subI=-1, totI=-1;
+      for(var i=s+1;i<nx;i++){ var c=comp(lines[i]); if(subI<0 && c.indexOf('SUBTOTAL')===0){ subI=i; } else if(subI>=0 && c.indexOf('TOTAL')===0){ totI=i; break; } }
+      var itEnd=(subI>=0?subI:nx), taxEnd=(totI>=0?totI:nx);
+      modules.push({ items:parseItemsRange(s+1,itEnd), taxes:(subI>=0?parseTaxesRange(subI+1,taxEnd):[]) });
+    }
+    if(!modules.length){ modules.push({items:[],taxes:[]}); }
     // ===== Volcar todo en una cotización nueva =====
     nuevaCotizacion();
     var cf=document.querySelector('.cliente-field'); if(cf && cliente) cf.innerHTML='<b>'+escapeHtml(cliente)+'</b>';
     var cn=document.getElementById('cotizNum'); if(cn && numero) cn.textContent=numero;
     var evEls=document.querySelectorAll('.event-col .val');
     if(evEls.length>=3){ if(evF) evEls[0].textContent=evF; if(evH) evEls[1].textContent=evH; if(evP) evEls[2].textContent=evP; }
-    var mod=document.querySelector('.modulo');
-    if(items.length){
+    for(var k=1;k<modules.length;k++){ addModulo(); } // crear los módulos que falten
+    var domMods=document.querySelectorAll('.modulo');
+    var totalItems=0;
+    modules.forEach(function(md,k){
+      var mod=domMods[k]; if(!mod || !md.items.length) return;
       var tb=mod.querySelector('.items'); tb.innerHTML='';
-      items.forEach(function(it){
+      md.items.forEach(function(it){
         var tr=document.createElement('tr');
         tr.innerHTML='<td class="qty-cell" contenteditable>'+escapeHtml(it.qty)+'</td>'+
           '<td><div class="desc" contenteditable>'+escapeHtml(it.desc)+'</div></td>'+
@@ -1105,13 +1115,15 @@
           '<td><button class="del-row" onclick="delRow(this)" title="Eliminar">×</button></td>';
         tb.appendChild(tr);
       });
-    }
+      totalItems+=md.items.length;
+    });
     initCalc();
-    // Impuestos aplicados (recupera el % desde el valor y el subtotal)
-    if(taxes.length){
+    // Impuestos por módulo (recupera el % desde el valor y el subtotal)
+    modules.forEach(function(md,k){
+      var mod=domMods[k]; if(!mod || !md.taxes.length) return;
       var sub=parseMoney(mod.querySelector('.subTotal').textContent);
       var trs=mod.querySelectorAll('.tax-row');
-      taxes.forEach(function(t){
+      md.taxes.forEach(function(t){
         var row=trs[t.idx]; if(!row) return;
         var pct=sub>0?Math.round(t.val/sub*10000)/100:0;
         var sel=row.querySelector('.tax-pct'), found=null;
@@ -1121,11 +1133,12 @@
         row.querySelector('.tax-aplica').checked=true;
       });
       updateTaxes(mod); recalcModule(mod);
-    }
+    });
+    renumberModulos();
     // Fecha: la del PDF (para que quede igual); si no se detecta, hoy
     if(fecha){ var le=document.querySelector('.letter-date'); if(le) le.textContent=fecha; } else { updateFecha(); }
     currentId=null; toggleHist(false); window.scrollTo(0,0);
-    toast(items.length?('PDF importado · '+items.length+' ítems · revisa y edita'):'PDF leído · revisa los datos');
+    toast(totalItems?('PDF importado · '+modules.length+' módulo(s) · '+totalItems+' ítems'):'PDF leído · revisa los datos');
   }
   document.getElementById('pdfInput').addEventListener('change', onPdfChosen);
 
