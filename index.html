@@ -152,6 +152,17 @@
   .add-row-wrap{margin:8px 0 0;}
   .btn-add{background:#262626; color:var(--gold); border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer;}
   .btn-add.btn-note{background:#fff; color:#8a5a00; border:1px solid var(--gold); margin-left:8px;}
+  /* Módulos de descripción */
+  .add-module-wrap{margin:20px 0 6px; text-align:center;}
+  .btn-add-module{background:var(--gold); color:#262626; border:none; border-radius:9px; padding:12px 22px;
+    font-size:13.5px; font-weight:800; cursor:pointer; letter-spacing:.3px; box-shadow:0 3px 0 #cf9d10;}
+  .btn-add-module:hover{filter:brightness(1.04);}
+  .modulo.extra{margin-top:26px; padding-top:14px; border-top:2px dashed #d8d2c2;}
+  .mod-remove{text-align:right; margin:-4px 0 6px;}
+  .btn-rem-mod{background:none; border:1px solid var(--red); color:var(--red); border-radius:7px;
+    padding:5px 12px; font-size:11px; font-weight:700; cursor:pointer;}
+  .btn-rem-mod:hover{background:var(--red); color:#fff;}
+  @media print{ .add-module-wrap, .btn-add-module, .mod-remove{display:none !important;} }
   .note-item{
     display:flex; gap:10px; align-items:flex-start; background:#fffdf5; border:1px dashed var(--gold);
     border-radius:10px; padding:10px 12px; margin-top:10px; font-size:12px;
@@ -448,7 +459,8 @@
       <div class="event-col"><div class="lbl">N.º de personas</div><div class="val" contenteditable>45 personas</div></div>
     </div>
 
-    <!-- COTIZACIÓN -->
+    <!-- MÓDULO DE DESCRIPCIÓN (clonable) -->
+    <div class="modulo">
     <h2 class="block" contenteditable>Detalle de la cotización</h2>
     <table class="quote">
       <thead>
@@ -459,7 +471,7 @@
           <th style="width:30px"></th>
         </tr>
       </thead>
-      <tbody id="items">
+      <tbody class="items">
         <tr>
           <td class="qty-cell" contenteditable>4</td>
           <td><div class="desc" contenteditable>Alquiler y uso de <b>4 pistas de tejo completas</b><small>Incluye implementos y accesorios de juego</small></div></td>
@@ -481,14 +493,14 @@
       </tbody>
     </table>
     <div class="add-row-wrap">
-      <button class="btn-add" onclick="addRow()">＋ Agregar ítem</button>
-      <button class="btn-add btn-note" onclick="addNote()">🗒 Agregar nota (opcional)</button>
+      <button class="btn-add" onclick="addRow(this)">＋ Agregar ítem</button>
+      <button class="btn-add btn-note" onclick="addNote(this,'notes')">🗒 Agregar nota (opcional)</button>
     </div>
 
-    <div id="notes"></div>
+    <div class="notes"></div>
 
     <!-- SUBTOTAL -->
-    <div class="sum-line sub"><span>Subtotal</span><span id="subTotal">$0</span></div>
+    <div class="sum-line sub"><span>Subtotal</span><span class="subTotal">$0</span></div>
 
     <!-- Impuestos y retenciones (calculados sobre el subtotal) -->
     <div class="taxes">
@@ -536,12 +548,18 @@
     </div>
 
     <div class="add-row-wrap">
-      <button class="btn-add btn-note" onclick="addNote('notesImp')">🗒 Agregar nota (opcional)</button>
+      <button class="btn-add btn-note" onclick="addNote(this,'notesImp')">🗒 Agregar nota (opcional)</button>
     </div>
-    <div id="notesImp"></div>
+    <div class="notesImp"></div>
 
     <!-- TOTAL -->
-    <div class="sum-line total"><span>TOTAL</span><span id="grandTotal">$0</span></div>
+    <div class="sum-line total"><span>TOTAL</span><span class="grandTotal">$0</span></div>
+    </div><!-- /modulo -->
+
+    <!-- Botón para agregar otro módulo independiente -->
+    <div class="add-module-wrap">
+      <button class="btn-add-module" onclick="addModulo()">＋ Agregar otro módulo de descripción</button>
+    </div>
 
     <!-- IMPORTANTE -->
     <h2 class="block break-page">Importante</h2>
@@ -667,14 +685,14 @@
   function formatMoney(n){
     return '$'+n.toLocaleString('es-CO');     // separador de miles con puntos
   }
-  function recalc(){
-    // 1) Subtotal = suma de los ítems
+  // Recalcula UN módulo (subtotal, impuestos, total)
+  function recalcModule(mod){
+    if(!mod) return;
     var sub=0;
-    document.querySelectorAll('#items .amount').forEach(function(c){ sub+=parseMoney(c.value); });
-    document.getElementById('subTotal').textContent=formatMoney(sub);
-    // 2) Cada impuesto = subtotal × %. Las retenciones (op=sub) restan; el consumo (op=add) suma.
+    mod.querySelectorAll('.items .amount').forEach(function(c){ sub+=parseMoney(c.value); });
+    var st=mod.querySelector('.subTotal'); if(st) st.textContent=formatMoney(sub);
     var neto=sub;
-    document.querySelectorAll('.tax-row').forEach(function(row){
+    mod.querySelectorAll('.tax-row').forEach(function(row){
       var chk=row.querySelector('.tax-aplica');
       var sel=row.querySelector('.tax-pct');
       var out=row.querySelector('.tax-amount-val');
@@ -686,31 +704,46 @@
       if(lbl) lbl.textContent=' ('+String(pct).replace('.',',')+'%)';
       if(chk && chk.checked){ neto += (op==='sub' ? -val : val); }
     });
-    // 3) Total a pagar = subtotal + consumo − retenciones (solo los aplicados)
-    document.getElementById('grandTotal').textContent=formatMoney(neto);
+    var gt=mod.querySelector('.grandTotal'); if(gt) gt.textContent=formatMoney(neto);
   }
+  function recalcAll(){ document.querySelectorAll('.modulo').forEach(recalcModule); }
+  // Compat: recalc global recalcula todos los módulos
+  function recalc(){ recalcAll(); }
   // Muestra/oculta filas de impuestos según "Aplica" (los no marcados no salen en el PDF)
-  function updateTaxes(){
+  function updateTaxes(mod){
+    if(!mod) return;
     var anyOn=false;
-    document.querySelectorAll('.tax-row').forEach(function(row){
+    mod.querySelectorAll('.tax-row').forEach(function(row){
       var on=row.querySelector('.tax-aplica').checked;
       row.classList.toggle('tax-off', !on);
       if(on) anyOn=true;
     });
-    var box=document.querySelector('.taxes');
+    var box=mod.querySelector('.taxes');
     if(box) box.classList.toggle('taxes-empty', !anyOn);
   }
+  // Agregar / quitar módulo de descripción independiente
+  var MOD_INNER=null;
+  function addModulo(){
+    if(!MOD_INNER) return;
+    var anchor=document.querySelector('.add-module-wrap');
+    var div=document.createElement('div');
+    div.className='modulo extra';
+    div.innerHTML='<div class="mod-remove"><button class="btn-rem-mod" onclick="removeModulo(this)">✕ Quitar módulo</button></div>'+MOD_INNER;
+    anchor.parentNode.insertBefore(div, anchor);
+    updateTaxes(div); recalcModule(div);
+    div.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+  function removeModulo(btn){ var m=btn.closest('.modulo'); if(m) m.remove(); }
   // Formatea el input en vivo mientras se escribe: pone $ y puntos automáticamente
   function formatAmount(el){
     var n=parseMoney(el.value);
     el.value = n>0 ? formatMoney(n) : '';
     var len=el.value.length;
     try{ el.setSelectionRange(len,len); }catch(e){}
-    recalc();
   }
 
-  function addRow(){
-    var tb=document.getElementById('items');
+  function addRow(btn){
+    var mod=btn.closest('.modulo'); var tb=mod.querySelector('.items');
     var tr=document.createElement('tr');
     tr.innerHTML='<td class="qty-cell" contenteditable>1</td>'+
       '<td><div class="desc" contenteditable>Nuevo ítem<small>Descripción del producto o servicio</small></div></td>'+
@@ -718,34 +751,16 @@
       '<td><button class="del-row" onclick="delRow(this)" title="Eliminar">×</button></td>';
     tb.appendChild(tr);
     tr.querySelector('.qty-cell').focus();
-    recalc();
+    recalcModule(mod);
   }
   function delRow(btn){
-    var tb=document.getElementById('items');
-    if(tb.rows.length>1){ btn.closest('tr').remove(); recalc(); }
+    var tb=btn.closest('.items'); var mod=btn.closest('.modulo');
+    if(tb.rows.length>1){ btn.closest('tr').remove(); recalcModule(mod); }
     else{ alert('Debe quedar al menos un ítem.'); }
   }
-
-  // Al escribir en cualquier campo de "Valor": formatea ($ y puntos) y recalcula el total
-  document.getElementById('items').addEventListener('input', function(e){
-    if(e.target.classList && e.target.classList.contains('amount')){ formatAmount(e.target); }
-  });
-  // Formatea los valores iniciales y calcula el total al cargar
-  document.querySelectorAll('#items .amount').forEach(function(el){
-    el.value = parseMoney(el.value)>0 ? formatMoney(parseMoney(el.value)) : '';
-  });
-  // Impuestos: recalcula al cambiar el % o al marcar/desmarcar "Aplica"
-  var taxesBox=document.querySelector('.taxes');
-  if(taxesBox){
-    taxesBox.addEventListener('change', function(e){
-      if(e.target.classList.contains('tax-aplica')){ updateTaxes(); recalc(); }
-      if(e.target.classList.contains('tax-pct')){ recalc(); }
-    });
-  }
-  updateTaxes();
-  recalc(); // subtotal, impuestos y total iniciales al cargar
-  function addNote(boxId){
-    var box=document.getElementById(boxId||'notes');
+  function addNote(btn, which){
+    var mod=btn.closest('.modulo');
+    var box=mod.querySelector('.'+(which||'notes'));
     var div=document.createElement('div');
     div.className='note-item';
     div.innerHTML='<span class="ico">🗒</span>'+
@@ -754,6 +769,27 @@
     box.appendChild(div);
     div.querySelector('.txt').focus();
   }
+
+  // Plantilla del módulo (para clonar módulos nuevos)
+  MOD_INNER = document.querySelector('.modulo').innerHTML;
+
+  // Delegación global: formatea importes y recalcula el módulo correspondiente
+  document.addEventListener('input', function(e){
+    if(e.target.classList && e.target.classList.contains('amount')){
+      formatAmount(e.target); recalcModule(e.target.closest('.modulo'));
+    }
+  });
+  document.addEventListener('change', function(e){
+    var t=e.target;
+    if(t.classList && (t.classList.contains('tax-aplica') || t.classList.contains('tax-pct'))){
+      var mod=t.closest('.modulo'); updateTaxes(mod); recalcModule(mod);
+    }
+  });
+  // Formatea importes iniciales y calcula todos los módulos al cargar
+  document.querySelectorAll('.items .amount').forEach(function(el){
+    el.value = parseMoney(el.value)>0 ? formatMoney(parseMoney(el.value)) : '';
+  });
+  document.querySelectorAll('.modulo').forEach(function(m){ updateTaxes(m); recalcModule(m); });
 </script>
 </body>
 </html>
