@@ -34,6 +34,44 @@
   .mg-note{font-size:11px !important; color:#999 !important; margin-top:12px !important;}
   @media print{ #mobileGate{display:none !important;} }
 
+  /* ===== Historial (panel izquierdo) ===== */
+  #sidebar{position:fixed; left:0; top:0; bottom:0; width:260px; background:#1e1e1e; color:#eee;
+    transform:translateX(-100%); transition:transform .25s ease; z-index:70; overflow-y:auto; display:flex; flex-direction:column;}
+  #sidebar.open{transform:translateX(0); box-shadow:6px 0 24px rgba(0,0,0,.4);}
+  .sb-head{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:#111; color:var(--gold); font-weight:800; letter-spacing:.5px; position:sticky; top:0;}
+  .sb-x{background:none; border:none; color:#bbb; font-size:18px; cursor:pointer;}
+  .sb-actions{display:flex; gap:8px; padding:12px;}
+  .sb-actions button{flex:1; border:none; border-radius:8px; padding:10px; font-weight:800; font-size:12.5px; cursor:pointer;}
+  .sb-save{background:linear-gradient(180deg,#ffd257,var(--gold)); color:#3a2a00;}
+  .sb-new{background:#333; color:#fff;}
+  .sb-list{flex:1; padding:4px 10px 10px;}
+  .sb-empty{color:#888; font-size:12.5px; padding:16px 8px; text-align:center; line-height:1.5;}
+  .sb-item{position:relative; background:#2a2a2a; border:1px solid #3a3a3a; border-radius:10px; padding:10px 30px 10px 12px; margin-bottom:8px; cursor:pointer; transition:background .12s;}
+  .sb-item:hover{background:#333;}
+  .sb-item.active{border-color:var(--gold); background:#332b12;}
+  .sb-cli{font-weight:700; font-size:13px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .sb-meta{font-size:10.5px; color:#9a9a9a; margin-top:3px;}
+  .sb-del{position:absolute; right:6px; top:8px; background:none; border:none; color:#c1121f; font-size:16px; font-weight:800; cursor:pointer; line-height:1;}
+  .sb-foot{padding:10px 14px; font-size:10px; color:#777; border-top:1px solid #333;}
+  #sbOverlay{position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:65; display:none;}
+  #sbOverlay.show{display:block;}
+  #toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px); background:#111; color:#fff;
+    padding:11px 20px; border-radius:24px; font-size:13px; font-weight:600; z-index:200; opacity:0; pointer-events:none;
+    transition:opacity .2s, transform .2s; box-shadow:0 6px 20px rgba(0,0,0,.4); border:1px solid var(--gold);}
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .btn-hist{background:#333; color:var(--gold); border:1px solid #555;}
+  @media screen and (min-width:1100px){
+    #sidebar{transform:translateX(0); box-shadow:none;}
+    body{padding-left:260px;}
+    #sbOverlay{display:none !important;}
+    .sb-x{display:none;}
+    .btn-hist{display:none !important;}
+  }
+  @media print{
+    #sidebar, #sbOverlay, #toast, .btn-hist{display:none !important;}
+    body{padding-left:0 !important;}
+  }
+
   /* ===== Barra de herramientas (no se imprime) ===== */
   .toolbar{
     position:sticky; top:0; z-index:50;
@@ -379,11 +417,29 @@
   </div>
 </div>
 
+<!-- HISTORIAL DE COTIZACIONES (panel izquierdo) -->
+<aside id="sidebar">
+  <div class="sb-head">
+    <span>📋 Mis cotizaciones</span>
+    <button class="sb-x" onclick="toggleHist(false)" title="Cerrar">✕</button>
+  </div>
+  <div class="sb-actions">
+    <button class="sb-save" onclick="guardarCotizacion()">💾 Guardar actual</button>
+    <button class="sb-new" onclick="nuevaCotizacion()">＋ Nueva</button>
+  </div>
+  <div id="histList" class="sb-list"></div>
+  <div class="sb-foot">Se guardan en este dispositivo/navegador.</div>
+</aside>
+<div id="sbOverlay" onclick="toggleHist(false)"></div>
+<div id="toast"></div>
+
 <div class="toolbar">
   <div class="tb-row">
+    <button class="btn btn-hist" onclick="toggleHist()">📋 Historial</button>
     <span class="brand">🎯 PA' LAS QUE SEA</span>
     <small>Plantilla de cotización · haz clic en cualquier dato para editarlo</small>
     <span class="spacer"></span>
+    <button class="btn btn-ghost" onclick="guardarCotizacion()">💾 Guardar</button>
     <button class="btn btn-pdf" id="pdfBtn" onclick="generarPDF()">⬇ Descargar PDF</button>
   </div>
   <div class="tb-row tb-format">
@@ -450,7 +506,7 @@
     <div class="meta">
       <div class="card">
         <div class="lbl">Señor(es)</div>
-        <div contenteditable><b>PALEB SAS</b></div>
+        <div class="cliente-field" contenteditable><b>PALEB SAS</b></div>
       </div>
     </div>
 
@@ -817,12 +873,94 @@
       if(h){ h.textContent='Detalle de la cotización'+(mods.length>1 ? ' '+(i+1) : ''); }
     });
   }
-  // Formatea importes iniciales y calcula todos los módulos al cargar
-  document.querySelectorAll('.items .amount').forEach(function(el){
-    el.value = parseMoney(el.value)>0 ? formatMoney(parseMoney(el.value)) : '';
-  });
-  document.querySelectorAll('.modulo').forEach(function(m){ updateTaxes(m); recalcModule(m); });
-  renumberModulos();
+  // (Re)inicializa cálculos de todos los módulos
+  function initCalc(){
+    document.querySelectorAll('.items .amount').forEach(function(el){
+      el.value = parseMoney(el.value)>0 ? formatMoney(parseMoney(el.value)) : '';
+    });
+    document.querySelectorAll('.modulo').forEach(function(m){ updateTaxes(m); recalcModule(m); });
+    renumberModulos();
+  }
+
+  // ===== Fecha automática (día de hoy, en español) =====
+  function updateFecha(){
+    var el=document.querySelector('.letter-date'); if(!el) return;
+    var meses=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    var d=new Date();
+    el.textContent='Bogotá, '+d.getDate()+' de '+meses[d.getMonth()]+' de '+d.getFullYear();
+  }
+
+  // ===== Historial de cotizaciones (localStorage) =====
+  var LSKEY='plqs_cotizaciones', currentId=null, PRISTINE_PAD=null;
+  function getHist(){ try{ return JSON.parse(localStorage.getItem(LSKEY)||'[]'); }catch(e){ return []; } }
+  function setHist(a){ try{ localStorage.setItem(LSKEY, JSON.stringify(a)); return true; }catch(e){ alert('No se pudo guardar: almacenamiento lleno.'); return false; } }
+  function escapeHtml(s){ return (''+(s||'')).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function toast(msg){ var t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(function(){ t.classList.remove('show'); },2200); }
+  function toggleHist(force){
+    var sb=document.getElementById('sidebar'), ov=document.getElementById('sbOverlay');
+    var open=(typeof force==='boolean')?force:!sb.classList.contains('open');
+    sb.classList.toggle('open', open); ov.classList.toggle('show', open);
+  }
+  function getCliente(){ var e=document.querySelector('.cliente-field'); return e?e.textContent.trim():'Sin nombre'; }
+  function getNumero(){ var e=document.getElementById('cotizNum'); return e?e.textContent.trim():''; }
+  function syncAttrs(root){
+    root.querySelectorAll('input').forEach(function(i){
+      if(i.type==='checkbox'){ if(i.checked) i.setAttribute('checked',''); else i.removeAttribute('checked'); }
+      else { i.setAttribute('value', i.value); }
+    });
+    root.querySelectorAll('select').forEach(function(s){
+      Array.prototype.forEach.call(s.options,function(o){ if(o.selected) o.setAttribute('selected','selected'); else o.removeAttribute('selected'); });
+    });
+  }
+  function snapshot(){ var pad=document.querySelector('.pad'); syncAttrs(pad); return { pad:pad.innerHTML, numero:getNumero() }; }
+  function guardarCotizacion(){
+    var snap=snapshot(), hist=getHist(), now=new Date(), cliente=getCliente()||'Sin nombre', e=null;
+    if(currentId){ for(var i=0;i<hist.length;i++){ if(hist[i].id===currentId){ e=hist[i]; break; } } }
+    if(e){ e.cliente=cliente; e.numero=snap.numero; e.pad=snap.pad; e.savedAt=now.toISOString(); }
+    else { currentId='c'+now.getTime(); hist.unshift({ id:currentId, cliente:cliente, numero:snap.numero, pad:snap.pad, savedAt:now.toISOString() }); }
+    if(setHist(hist)){ renderHist(); toast('✓ Cotización guardada'); }
+  }
+  function abrirCotizacion(id){
+    var hist=getHist(), e=null; for(var i=0;i<hist.length;i++){ if(hist[i].id===id){ e=hist[i]; break; } }
+    if(!e) return;
+    document.querySelector('.pad').innerHTML=e.pad;
+    var cn=document.getElementById('cotizNum'); if(cn && e.numero) cn.textContent=e.numero;
+    currentId=id; initCalc(); updateFecha(); renderHist();
+    if(window.innerWidth<1100) toggleHist(false);
+    window.scrollTo(0,0); toast('Cotización abierta · fecha actualizada a hoy');
+  }
+  function eliminarCotizacion(id, ev){
+    if(ev) ev.stopPropagation();
+    if(!confirm('¿Eliminar esta cotización del historial?')) return;
+    var hist=getHist().filter(function(x){return x.id!==id;});
+    setHist(hist); if(currentId===id) currentId=null; renderHist();
+  }
+  function nuevaCotizacion(){
+    if(PRISTINE_PAD){ document.querySelector('.pad').innerHTML=PRISTINE_PAD; }
+    currentId=null; initCalc(); updateFecha(); renderHist();
+    if(window.innerWidth<1100) toggleHist(false);
+    window.scrollTo(0,0); toast('Nueva cotización en blanco');
+  }
+  function renderHist(){
+    var list=document.getElementById('histList'); if(!list) return;
+    var hist=getHist();
+    if(!hist.length){ list.innerHTML='<div class="sb-empty">Aún no has guardado cotizaciones.<br>Edita y toca «Guardar».</div>'; return; }
+    list.innerHTML=hist.map(function(e){
+      var d=new Date(e.savedAt);
+      var fecha=d.toLocaleDateString('es-CO')+' '+d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+      return '<div class="sb-item'+(e.id===currentId?' active':'')+'" onclick="abrirCotizacion(\''+e.id+'\')">'+
+        '<div class="sb-cli">'+escapeHtml(e.cliente||'Sin nombre')+'</div>'+
+        '<div class="sb-meta">'+(e.numero?('N.º '+escapeHtml(e.numero)+' · '):'')+fecha+'</div>'+
+        '<button class="sb-del" onclick="eliminarCotizacion(\''+e.id+'\',event)" title="Eliminar">×</button>'+
+      '</div>';
+    }).join('');
+  }
+
+  // ===== Arranque =====
+  PRISTINE_PAD = document.querySelector('.pad').innerHTML; // plantilla en blanco para "Nueva"
+  initCalc();
+  updateFecha();       // fecha = hoy al abrir
+  renderHist();
 </script>
 </body>
 </html>
