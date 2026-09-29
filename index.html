@@ -44,6 +44,9 @@
   .sb-actions button{flex:1; border:none; border-radius:8px; padding:10px; font-weight:800; font-size:12.5px; cursor:pointer;}
   .sb-save{background:linear-gradient(180deg,#ffd257,var(--gold)); color:#3a2a00;}
   .sb-new{background:#333; color:#fff;}
+  .sb-actions2{padding:0 12px 10px;}
+  .sb-import{width:100%; border:1px dashed var(--gold); background:#2a2412; color:var(--gold); border-radius:8px; padding:10px; font-weight:700; font-size:12px; cursor:pointer;}
+  .sb-import:hover{background:#332b12;}
   .sb-list{flex:1; padding:4px 10px 10px;}
   .sb-empty{color:#888; font-size:12.5px; padding:16px 8px; text-align:center; line-height:1.5;}
   .sb-item{position:relative; background:#2a2a2a; border:1px solid #3a3a3a; border-radius:10px; padding:10px 30px 10px 12px; margin-bottom:8px; cursor:pointer; transition:background .12s;}
@@ -427,6 +430,10 @@
     <button class="sb-save" onclick="guardarCotizacion()">💾 Guardar actual</button>
     <button class="sb-new" onclick="nuevaCotizacion()">＋ Nueva</button>
   </div>
+  <div class="sb-actions2">
+    <button class="sb-import" onclick="adjuntarPDF()">📎 Adjuntar cotización (PDF)</button>
+    <input type="file" id="pdfInput" accept="application/pdf" style="display:none">
+  </div>
   <div id="histList" class="sb-list"></div>
   <div class="sb-foot">Se guardan en este dispositivo/navegador.</div>
 </aside>
@@ -627,7 +634,7 @@
         <li>Esta cotización <b>se sostiene por 10 días hábiles</b> después de su fecha de emisión.</li>
         <li>Debe asignarse una persona <b>encargada de los implementos de juego</b>, del control de entrega de productos consumibles y de la organización general del evento.</li>
         <li>Se debe confirmar con exactitud la <b>cantidad de personas</b>: se maneja manilla por persona para el control de asistencia y entrega de tejos.</li>
-        <li>Para confirmar la reserva se requiere un <b>abono del 50%</b> del total, realizando la reserva <b>15 días antes</b> de la fecha del evento.</li>
+        <li>Para confirmar la reserva se requiere un <b>abono del 50%</b> del total, realizando la reserva <b>10 días antes</b> de la fecha del evento.</li>
         <li>Para el inicio del evento debe estar <b>cancelado el valor total</b>.</li>
         <li><b>No se hace devolución de dinero</b> después de realizada la reserva.</li>
         <li>Si al terminar el evento queda saldo consumible, <b>se entrega en productos del bar para llevar</b>.</li>
@@ -644,7 +651,7 @@
       </div>
       <div class="bank bank-gold">
         <div class="lbl">Abono para reservar</div><div class="v">50% del valor total</div>
-        <div class="lbl">Plazo de reserva</div><div class="v">15 días antes del evento</div>
+        <div class="lbl">Plazo de reserva</div><div class="v">10 días antes del evento</div>
         <div class="lbl">Saldo total</div><div class="v">Antes de iniciar el evento</div>
       </div>
     </div>
@@ -955,6 +962,102 @@
       '</div>';
     }).join('');
   }
+
+  // ===== Adjuntar / importar una cotización en PDF =====
+  function adjuntarPDF(){ document.getElementById('pdfInput').click(); }
+  function cargarPdfJs(cb, fail){
+    if(window.pdfjsLib){ cb(); return; }
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=function(){ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){} cb(); };
+    s.onerror=fail;
+    document.head.appendChild(s);
+  }
+  function onPdfChosen(e){
+    var f=e.target.files && e.target.files[0]; if(!f) return;
+    toast('Leyendo PDF…');
+    cargarPdfJs(function(){
+      var fr=new FileReader();
+      fr.onload=function(){
+        var data=new Uint8Array(fr.result);
+        pdfjsLib.getDocument({data:data}).promise.then(function(pdf){
+          var rows=[]; var chain=Promise.resolve();
+          for(var p=1;p<=pdf.numPages;p++){ (function(pg){ chain=chain.then(function(){ return pdf.getPage(pg).then(function(page){ return page.getTextContent().then(function(tc){ collectRows(tc, rows); }); }); }); })(p); }
+          chain.then(function(){ parseAndFill(rows); }).catch(function(){ alert('No se pudo leer el PDF.'); });
+        }).catch(function(){ alert('No se pudo abrir el PDF.'); });
+      };
+      fr.readAsArrayBuffer(f);
+      e.target.value='';
+    }, function(){ alert('Para leer PDF se necesita internet la primera vez.'); e.target.value=''; });
+  }
+  function collectRows(tc, rows){
+    // agrupa items de texto por su coordenada Y (fila)
+    var byY={};
+    tc.items.forEach(function(it){
+      if(!it.str || !it.str.trim()) return;
+      var x=it.transform[4], y=Math.round(it.transform[5]);
+      var key=null;
+      for(var k in byY){ if(Math.abs(k-y)<=4){ key=k; break; } }
+      if(key===null){ key=y; byY[key]=[]; }
+      byY[key].push({x:x, str:it.str});
+    });
+    var ys=Object.keys(byY).map(Number).sort(function(a,b){return b-a;}); // arriba->abajo
+    ys.forEach(function(y){
+      var toks=byY[y].sort(function(a,b){return a.x-b.x;});
+      rows.push({y:y, tokens:toks});
+    });
+  }
+  function parseAndFill(rows){
+    var lines=rows.map(function(r){ return r.tokens.map(function(t){return t.str;}).join(' ').replace(/\s+/g,' ').trim(); });
+    function comp(s){ return (s||'').replace(/\s/g,'').toUpperCase(); }
+    var full=lines.join('\n');
+    // Cliente
+    var cliente='';
+    for(var i=0;i<lines.length;i++){ var c=comp(lines[i]); if(c.indexOf('SEÑOR(ES)')>=0 || c.indexOf('SENOR(ES)')>=0){ cliente=(lines[i+1]||'').trim(); break; } }
+    // Número
+    var mnum=full.match(/N\.?\s*º?\s*([0-9][0-9\-]{3,})/); var numero=mnum?mnum[1]:'';
+    // Ítems entre "DETALLE DE LA COTIZACIÓN" y "Subtotal" (comparación sin espacios por el letter-spacing)
+    var start=-1,end=-1;
+    for(var i=0;i<lines.length;i++){ var c=comp(lines[i]); if(c.indexOf('DETALLEDELACOTIZ')>=0 && start<0) start=i; if(start>=0 && c.indexOf('SUBTOTAL')===0){ end=i; break; } }
+    var items=[], cur=null;
+    if(start>=0){
+      var e2=(end>=0?end:lines.length);
+      for(var i=start+1;i<e2;i++){
+        var raw=lines[i].trim(), c=comp(raw);
+        if(c.indexOf('DESCRIPCI')>=0 || c.indexOf('CANT')===0) continue; // encabezado
+        if(/^-?\$\s?[\d.,]+$/.test(raw)){ if(cur && !cur.value){ cur.value=raw.replace(/\s/g,''); } continue; } // valor en su propia fila
+        var mItem=raw.match(/^(\d+)\s+(.+)/);
+        if(mItem){
+          var d=mItem[2].trim(), v='';
+          var mv=d.match(/(-?\$[\d.,]+)\s*$/);
+          if(mv){ v=mv[1].replace(/\s/g,''); d=d.slice(0,mv.index).trim(); }
+          cur={qty:mItem[1], desc:d, value:v}; items.push(cur); continue;
+        }
+        var mInline=raw.match(/^(.+?)\s+(-?\$[\d.,]+)$/);
+        if(mInline){ cur={qty:'1', desc:mInline[1].trim(), value:mInline[2].replace(/\s/g,'')}; items.push(cur); continue; }
+      }
+    }
+    items=items.filter(function(it){ return it.value && it.value.charAt(0)!=='-'; });
+    // Volcar en una cotización nueva
+    nuevaCotizacion();
+    var cf=document.querySelector('.cliente-field'); if(cf && cliente) cf.innerHTML='<b>'+escapeHtml(cliente)+'</b>';
+    var cn=document.getElementById('cotizNum'); if(cn && numero) cn.textContent=numero;
+    var mod=document.querySelector('.modulo');
+    if(items.length){
+      var tb=mod.querySelector('.items'); tb.innerHTML='';
+      items.forEach(function(it){
+        var tr=document.createElement('tr');
+        tr.innerHTML='<td class="qty-cell" contenteditable>'+escapeHtml(it.qty)+'</td>'+
+          '<td><div class="desc" contenteditable>'+escapeHtml(it.desc)+'</div></td>'+
+          '<td class="r"><input class="amount" inputmode="numeric" value="'+escapeHtml(it.value)+'"></td>'+
+          '<td><button class="del-row" onclick="delRow(this)" title="Eliminar">×</button></td>';
+        tb.appendChild(tr);
+      });
+    }
+    currentId=null; initCalc(); updateFecha(); toggleHist(false); window.scrollTo(0,0);
+    toast(items.length?('PDF importado · '+items.length+' ítems · revisa y edita'):'PDF leído · revisa los datos');
+  }
+  document.getElementById('pdfInput').addEventListener('change', onPdfChosen);
 
   // ===== Arranque =====
   PRISTINE_PAD = document.querySelector('.pad').innerHTML; // plantilla en blanco para "Nueva"
