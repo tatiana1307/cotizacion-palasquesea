@@ -178,9 +178,9 @@
   .tax-row{display:flex; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid var(--line); font-size:12.5px;}
   .tax-row:last-child{border-bottom:none;}
   .tax-row.tax-off{opacity:.42;}
-  .tax-check{display:flex; align-items:center; gap:6px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:#585057; font-weight:700; white-space:nowrap; cursor:pointer;}
-  .tax-check input{width:16px; height:16px; accent-color:var(--gold); cursor:pointer;}
-  .tax-name{flex:1; font-weight:600; color:#333;}
+  .tax-check{display:flex; align-items:center; flex:0 0 auto; cursor:pointer;}
+  .tax-check input{width:17px; height:17px; accent-color:var(--gold); cursor:pointer; margin:0;}
+  .tax-name{flex:1 1 auto; min-width:0; font-weight:600; color:#333;}
   .tax-pct{flex:0 0 auto; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 8px; font-size:12px;
     background:#fff; color:#262626; cursor:pointer;}
   .tax-pct:hover{border-color:var(--gold);}
@@ -347,6 +347,13 @@
     table.quote thead th, table.quote tbody td{padding:8px 8px;}
     .toolbar{padding:8px 12px;}
     .tb-format{gap:6px;}
+    /* Impuestos en celular: el % pasa a su propia línea (evita que ReteICA se corra) */
+    .tax-row{flex-wrap:wrap; gap:6px 10px; padding:10px 12px;}
+    .tax-check{order:1;}
+    .tax-name{order:2; flex:1 1 auto;}
+    .tax-amount-val{order:3; flex:0 0 auto; width:auto; margin-left:auto; font-size:13px;}
+    .tax-pct{order:4; flex:1 1 100%; width:100%; max-width:100%; height:34px;}
+    .sum-line{padding:11px 12px;}
   }
   @media screen and (max-width:480px){
     .lh-doc-title{font-size:18px;}
@@ -506,24 +513,19 @@
     <div class="taxes">
       <h3>Impuestos y retenciones</h3>
       <div class="tax-row" data-op="sub">
-        <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
-        <span class="tax-name">Retención en la fuente
-          <span class="tip" tabindex="0" data-tip="ReteRenta: retención del impuesto de renta que el cliente (agente retenedor) descuenta del pago. SE RESTA del subtotal. Se calcula: subtotal × % seleccionado.">i</span>
-          <span class="tax-pct-label"></span>
-        </span>
+        <label class="tax-check"><input type="checkbox" class="tax-aplica"></label>
+        <span class="tax-name">Retención en la fuente<span class="tax-pct-label"></span></span>
         <select class="tax-pct">
           <option value="2.5">2,5%</option>
           <option value="3.5">3,5%</option>
           <option value="4">4%</option>
+          <option value="custom">Otro %…</option>
         </select>
         <span class="tax-amount-val">$0</span>
       </div>
       <div class="tax-row" data-op="sub">
-        <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
-        <span class="tax-name">ReteICA
-          <span class="tip" tabindex="0" data-tip="ReteICA: retención del Impuesto de Industria y Comercio (Bogotá). SE RESTA del subtotal. Tarifas por mil según la actividad. Se calcula: subtotal × % seleccionado.">i</span>
-          <span class="tax-pct-label"></span>
-        </span>
+        <label class="tax-check"><input type="checkbox" class="tax-aplica"></label>
+        <span class="tax-name">ReteICA<span class="tax-pct-label"></span></span>
         <select class="tax-pct">
           <option value="0.414">4,14 × mil (0,414%)</option>
           <option value="0.69">6,9 × mil (0,69%)</option>
@@ -531,17 +533,16 @@
           <option value="0.966">9,66 × mil (0,966%)</option>
           <option value="1.104">11,04 × mil (1,104%)</option>
           <option value="1.38">13,8 × mil (1,38%)</option>
+          <option value="custom">Otro %…</option>
         </select>
         <span class="tax-amount-val">$0</span>
       </div>
       <div class="tax-row" data-op="add">
-        <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
-        <span class="tax-name">Impuesto al consumo
-          <span class="tip" tabindex="0" data-tip="Impuesto Nacional al Consumo (INC) — tarifa del 8% para gastronomía y bebidas. SE SUMA al subtotal. Se calcula: subtotal × %.">i</span>
-          <span class="tax-pct-label"></span>
-        </span>
+        <label class="tax-check"><input type="checkbox" class="tax-aplica"></label>
+        <span class="tax-name">Impuesto al consumo<span class="tax-pct-label"></span></span>
         <select class="tax-pct">
           <option value="8">8%</option>
+          <option value="custom">Otro %…</option>
         </select>
         <span class="tax-amount-val">$0</span>
       </div>
@@ -730,10 +731,10 @@
     div.className='modulo extra';
     div.innerHTML='<div class="mod-remove"><button class="btn-rem-mod" onclick="removeModulo(this)">✕ Quitar módulo</button></div>'+MOD_INNER;
     anchor.parentNode.insertBefore(div, anchor);
-    updateTaxes(div); recalcModule(div);
+    updateTaxes(div); recalcModule(div); renumberModulos();
     div.scrollIntoView({behavior:'smooth', block:'center'});
   }
-  function removeModulo(btn){ var m=btn.closest('.modulo'); if(m) m.remove(); }
+  function removeModulo(btn){ var m=btn.closest('.modulo'); if(m){ m.remove(); renumberModulos(); } }
   // Formatea el input en vivo mientras se escribe: pone $ y puntos automáticamente
   function formatAmount(el){
     var n=parseMoney(el.value);
@@ -781,15 +782,47 @@
   });
   document.addEventListener('change', function(e){
     var t=e.target;
-    if(t.classList && (t.classList.contains('tax-aplica') || t.classList.contains('tax-pct'))){
+    if(!t.classList) return;
+    if(t.classList.contains('tax-pct')){
+      if(t.value==='custom'){ handleCustomPct(t); }
+      else { t.setAttribute('data-prev', t.value); }
+      recalcModule(t.closest('.modulo')); return;
+    }
+    if(t.classList.contains('tax-aplica')){
       var mod=t.closest('.modulo'); updateTaxes(mod); recalcModule(mod);
     }
   });
+  // Permite ingresar un % manual en la lista y lo agrega como opción
+  function handleCustomPct(sel){
+    var raw=prompt('Escribe el porcentaje (%) a aplicar. Ej: 2,5');
+    if(raw===null){ sel.value = sel.getAttribute('data-prev') || sel.options[0].value; return; }
+    var v=(''+raw).replace(',', '.').replace(/[^0-9.]/g,'');
+    var num=parseFloat(v);
+    if(isNaN(num) || num<0){ alert('Porcentaje no válido.'); sel.value = sel.getAttribute('data-prev') || sel.options[0].value; return; }
+    // ¿ya existe esa opción?
+    var exists=null;
+    Array.prototype.forEach.call(sel.options, function(o){ if(parseFloat(o.value)===num) exists=o; });
+    if(!exists){
+      var opt=document.createElement('option');
+      opt.value=String(num); opt.textContent=(''+num).replace('.', ',')+'%';
+      sel.insertBefore(opt, sel.querySelector('option[value="custom"]'));
+    }
+    sel.value=String(num); sel.setAttribute('data-prev', String(num));
+  }
+  // Numera los módulos: "Detalle de la cotización N" (sin número si hay solo uno)
+  function renumberModulos(){
+    var mods=document.querySelectorAll('.modulo');
+    mods.forEach(function(m,i){
+      var h=m.querySelector('h2.block');
+      if(h){ h.textContent='Detalle de la cotización'+(mods.length>1 ? ' '+(i+1) : ''); }
+    });
+  }
   // Formatea importes iniciales y calcula todos los módulos al cargar
   document.querySelectorAll('.items .amount').forEach(function(el){
     el.value = parseMoney(el.value)>0 ? formatMoney(parseMoney(el.value)) : '';
   });
   document.querySelectorAll('.modulo').forEach(function(m){ updateTaxes(m); recalcModule(m); });
+  renumberModulos();
 </script>
 </body>
 </html>
