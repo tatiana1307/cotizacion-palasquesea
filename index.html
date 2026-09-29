@@ -493,10 +493,10 @@
     <!-- Impuestos y retenciones (calculados sobre el subtotal) -->
     <div class="taxes">
       <h3>Impuestos y retenciones</h3>
-      <div class="tax-row">
+      <div class="tax-row" data-op="sub">
         <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
         <span class="tax-name">Retención en la fuente
-          <span class="tip" tabindex="0" data-tip="Retención del impuesto de renta que el cliente (agente retenedor) descuenta del pago. Se calcula: subtotal × % seleccionado.">i</span>
+          <span class="tip" tabindex="0" data-tip="ReteRenta: retención del impuesto de renta que el cliente (agente retenedor) descuenta del pago. SE RESTA del subtotal. Se calcula: subtotal × % seleccionado.">i</span>
           <span class="tax-pct-label"></span>
         </span>
         <select class="tax-pct">
@@ -506,10 +506,10 @@
         </select>
         <span class="tax-amount-val">$0</span>
       </div>
-      <div class="tax-row">
+      <div class="tax-row" data-op="sub">
         <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
-        <span class="tax-name">Retención de ICA
-          <span class="tip" tabindex="0" data-tip="Retención del Impuesto de Industria y Comercio (Bogotá). Tarifas por mil según la actividad económica. Se calcula: subtotal × % seleccionado.">i</span>
+        <span class="tax-name">ReteICA
+          <span class="tip" tabindex="0" data-tip="ReteICA: retención del Impuesto de Industria y Comercio (Bogotá). SE RESTA del subtotal. Tarifas por mil según la actividad. Se calcula: subtotal × % seleccionado.">i</span>
           <span class="tax-pct-label"></span>
         </span>
         <select class="tax-pct">
@@ -522,10 +522,10 @@
         </select>
         <span class="tax-amount-val">$0</span>
       </div>
-      <div class="tax-row">
+      <div class="tax-row" data-op="add">
         <label class="tax-check"><input type="checkbox" class="tax-aplica"> Aplica</label>
         <span class="tax-name">Impuesto al consumo
-          <span class="tip" tabindex="0" data-tip="Impuesto Nacional al Consumo (INC) — tarifa del 8% aplicable a gastronomía y bebidas. Se calcula: subtotal × %.">i</span>
+          <span class="tip" tabindex="0" data-tip="Impuesto Nacional al Consumo (INC) — tarifa del 8% para gastronomía y bebidas. SE SUMA al subtotal. Se calcula: subtotal × %.">i</span>
           <span class="tax-pct-label"></span>
         </span>
         <select class="tax-pct">
@@ -672,21 +672,22 @@
     var sub=0;
     document.querySelectorAll('#items .amount').forEach(function(c){ sub+=parseMoney(c.value); });
     document.getElementById('subTotal').textContent=formatMoney(sub);
-    // 2) Cada impuesto = subtotal × % seleccionado; solo suma si está "Aplica"
-    var impuestos=0;
+    // 2) Cada impuesto = subtotal × %. Las retenciones (op=sub) restan; el consumo (op=add) suma.
+    var neto=sub;
     document.querySelectorAll('.tax-row').forEach(function(row){
       var chk=row.querySelector('.tax-aplica');
       var sel=row.querySelector('.tax-pct');
       var out=row.querySelector('.tax-amount-val');
       var lbl=row.querySelector('.tax-pct-label');
+      var op=row.getAttribute('data-op'); // 'sub' resta, 'add' suma
       var pct=sel?parseFloat(sel.value)||0:0;
       var val=Math.round(sub*pct/100);
-      if(out) out.textContent=formatMoney(val);
+      if(out) out.textContent=(op==='sub'?'−':'+')+formatMoney(val);
       if(lbl) lbl.textContent=' ('+String(pct).replace('.',',')+'%)';
-      if(chk && chk.checked){ impuestos+=val; }
+      if(chk && chk.checked){ neto += (op==='sub' ? -val : val); }
     });
-    // 3) Total = subtotal + impuestos aplicados
-    document.getElementById('grandTotal').textContent=formatMoney(sub+impuestos);
+    // 3) Total a pagar = subtotal + consumo − retenciones (solo los aplicados)
+    document.getElementById('grandTotal').textContent=formatMoney(neto);
   }
   // Muestra/oculta filas de impuestos según "Aplica" (los no marcados no salen en el PDF)
   function updateTaxes(){
