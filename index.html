@@ -63,6 +63,19 @@
     transition:opacity .2s, transform .2s; box-shadow:0 6px 20px rgba(0,0,0,.4); border:1px solid var(--gold);}
   #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
   .btn-hist{background:#333; color:var(--gold); border:1px solid #555;}
+  /* Visor de PDF adjuntado */
+  .pdfv{position:fixed; inset:0; z-index:300; background:#525659; display:none; flex-direction:column;}
+  .pdfv.show{display:flex;}
+  .pdfv-bar{background:#262626; color:#fff; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;}
+  .pdfv-title{font-size:13px;} .pdfv-title b{color:var(--gold);}
+  .pdfv-btns{display:flex; gap:8px;}
+  .pdfv-bar button{border:none; border-radius:8px; padding:9px 14px; font-weight:800; font-size:12.5px; cursor:pointer;}
+  .pdfv-edit{background:linear-gradient(180deg,#ffd257,var(--gold)); color:#3a2a00;}
+  .pdfv-close{background:#555; color:#fff;}
+  .pdfv-pages{flex:1; overflow:auto; padding:16px; text-align:center; -webkit-overflow-scrolling:touch;}
+  .pdfv-page{display:block; margin:0 auto 14px; box-shadow:0 4px 16px rgba(0,0,0,.5); background:#fff;}
+  .pdfv-load{color:#eee; padding:40px 16px; text-align:center; font-size:14px;}
+  @media print{ .pdfv{display:none !important;} }
   @media screen and (min-width:1100px){
     #sidebar{transform:translateX(0); box-shadow:none;}
     body{padding-left:260px;}
@@ -439,6 +452,18 @@
 </aside>
 <div id="sbOverlay" onclick="toggleHist(false)"></div>
 <div id="toast"></div>
+
+<!-- Visor del PDF adjuntado (se ve completo, tal cual lo subió el usuario) -->
+<div id="pdfViewer" class="pdfv">
+  <div class="pdfv-bar">
+    <span class="pdfv-title">📄 <b>Cotización adjunta</b> — tal cual la subiste</span>
+    <span class="pdfv-btns">
+      <button class="pdfv-edit" onclick="importarDatosDelPdf()">✎ Cargar datos para editar</button>
+      <button class="pdfv-close" onclick="cerrarPdfViewer()">✕ Cerrar</button>
+    </span>
+  </div>
+  <div id="pdfvPages" class="pdfv-pages"></div>
+</div>
 
 <div class="toolbar">
   <div class="tb-row">
@@ -983,23 +1008,49 @@
   function onPdfChosen(e){
     var f=e.target.files && e.target.files[0]; if(!f){ return; }
     e.target.value='';
-    toast('Leyendo PDF…');
+    toast('Abriendo PDF…');
     cargarPdfJs(function(){
       var fr=new FileReader();
-      fr.onload=function(){
-        var data=new Uint8Array(fr.result);
-        pdfjsLib.getDocument({data:data}).promise.then(function(pdf){
-          var rows=[]; var chain=Promise.resolve();
-          for(var p=1;p<=pdf.numPages;p++){ (function(pg){ chain=chain.then(function(){ return pdf.getPage(pg).then(function(page){ return page.getTextContent().then(function(tc){ collectRows(tc, rows); }); }); }); })(p); }
-          chain.then(function(){
-            try{ parseAndFill(rows); }
-            catch(err){ alert('No se pudo interpretar el PDF: '+(err&&err.message||err)); }
-          }).catch(function(err){ alert('Error leyendo páginas del PDF: '+(err&&err.message||err)); });
-        }).catch(function(err){ alert('No se pudo abrir el PDF: '+(err&&err.message||err)+'\n\nSi lo abriste como archivo local, intenta desde el enlace web.'); });
-      };
+      fr.onload=function(){ lastPdfBytes=new Uint8Array(fr.result); mostrarPdf(lastPdfBytes); };
       fr.onerror=function(){ alert('No se pudo leer el archivo.'); };
       fr.readAsArrayBuffer(f);
     }, function(){ alert('No se pudo cargar el lector de PDF (pdf.js). Revisa tu conexión a internet e inténtalo de nuevo.'); });
+  }
+  // Muestra el PDF COMPLETO tal cual lo subió el usuario (renderiza todas las páginas)
+  var lastPdfBytes=null;
+  function mostrarPdf(bytes){
+    var cont=document.getElementById('pdfvPages');
+    cont.innerHTML='<div class="pdfv-load">Cargando PDF…</div>';
+    document.getElementById('pdfViewer').classList.add('show');
+    document.body.style.overflow='hidden';
+    pdfjsLib.getDocument({data:bytes.slice(0)}).promise.then(function(pdf){
+      cont.innerHTML='';
+      var chain=Promise.resolve();
+      for(var p=1;p<=pdf.numPages;p++){ (function(pg){ chain=chain.then(function(){ return pdf.getPage(pg).then(function(page){
+        var base=page.getViewport({scale:1});
+        var avail=(cont.clientWidth||700)-24;
+        var scale=avail/base.width; if(!(scale>0)) scale=1.2; if(scale>2.2) scale=2.2;
+        var dpr=window.devicePixelRatio||1;
+        var vp=page.getViewport({scale:scale*dpr});
+        var cv=document.createElement('canvas'); cv.className='pdfv-page';
+        cv.width=vp.width; cv.height=vp.height; cv.style.width='100%'; cv.style.maxWidth=Math.round(base.width*scale)+'px';
+        cont.appendChild(cv);
+        return page.render({canvasContext:cv.getContext('2d'), viewport:vp}).promise;
+      }); }); })(p); }
+      return chain;
+    }).catch(function(e){ cont.innerHTML='<div class="pdfv-load">No se pudo mostrar el PDF: '+(e&&e.message||e)+'</div>'; });
+  }
+  function cerrarPdfViewer(){ document.getElementById('pdfViewer').classList.remove('show'); document.body.style.overflow=''; }
+  // Reconstruye TODOS los módulos del PDF en el editor para poder editarlos
+  function importarDatosDelPdf(){
+    if(!lastPdfBytes){ return; }
+    toast('Cargando datos para editar…');
+    pdfjsLib.getDocument({data:lastPdfBytes.slice(0)}).promise.then(function(pdf){
+      var rows=[], chain=Promise.resolve();
+      for(var p=1;p<=pdf.numPages;p++){ (function(pg){ chain=chain.then(function(){ return pdf.getPage(pg).then(function(page){ return page.getTextContent().then(function(tc){ collectRows(tc, rows); }); }); }); })(p); }
+      chain.then(function(){ cerrarPdfViewer(); try{ parseAndFill(rows); }catch(e){ alert('No se pudieron cargar los datos: '+(e&&e.message||e)); } })
+           .catch(function(e){ alert('Error leyendo el PDF: '+(e&&e.message||e)); });
+    }).catch(function(e){ alert('No se pudo abrir el PDF: '+(e&&e.message||e)); });
   }
   function collectRows(tc, rows){
     // agrupa items de texto por su coordenada Y (fila)
