@@ -964,17 +964,25 @@
   }
 
   // ===== Adjuntar / importar una cotización en PDF =====
+  var PDFJS_VER='3.11.174', pdfReady=false;
   function adjuntarPDF(){ document.getElementById('pdfInput').click(); }
   function cargarPdfJs(cb, fail){
-    if(window.pdfjsLib){ cb(); return; }
+    function setupWorker(){
+      // El worker debe ser mismo-origen: lo cargamos como Blob (funciona en archivo local y en web)
+      fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VER+'/pdf.worker.min.js')
+        .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+        .then(function(txt){ var b=new Blob([txt],{type:'application/javascript'}); pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(b); pdfReady=true; cb(); })
+        .catch(function(){ try{ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VER+'/pdf.worker.min.js'; }catch(e){} pdfReady=true; cb(); });
+    }
+    if(window.pdfjsLib){ if(pdfReady) cb(); else setupWorker(); return; }
     var s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    s.onload=function(){ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){} cb(); };
-    s.onerror=fail;
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VER+'/pdf.min.js';
+    s.onload=setupWorker; s.onerror=function(){ fail&&fail(); };
     document.head.appendChild(s);
   }
   function onPdfChosen(e){
-    var f=e.target.files && e.target.files[0]; if(!f) return;
+    var f=e.target.files && e.target.files[0]; if(!f){ return; }
+    e.target.value='';
     toast('Leyendo PDF…');
     cargarPdfJs(function(){
       var fr=new FileReader();
@@ -983,12 +991,15 @@
         pdfjsLib.getDocument({data:data}).promise.then(function(pdf){
           var rows=[]; var chain=Promise.resolve();
           for(var p=1;p<=pdf.numPages;p++){ (function(pg){ chain=chain.then(function(){ return pdf.getPage(pg).then(function(page){ return page.getTextContent().then(function(tc){ collectRows(tc, rows); }); }); }); })(p); }
-          chain.then(function(){ parseAndFill(rows); }).catch(function(){ alert('No se pudo leer el PDF.'); });
-        }).catch(function(){ alert('No se pudo abrir el PDF.'); });
+          chain.then(function(){
+            try{ parseAndFill(rows); }
+            catch(err){ alert('No se pudo interpretar el PDF: '+(err&&err.message||err)); }
+          }).catch(function(err){ alert('Error leyendo páginas del PDF: '+(err&&err.message||err)); });
+        }).catch(function(err){ alert('No se pudo abrir el PDF: '+(err&&err.message||err)+'\n\nSi lo abriste como archivo local, intenta desde el enlace web.'); });
       };
+      fr.onerror=function(){ alert('No se pudo leer el archivo.'); };
       fr.readAsArrayBuffer(f);
-      e.target.value='';
-    }, function(){ alert('Para leer PDF se necesita internet la primera vez.'); e.target.value=''; });
+    }, function(){ alert('No se pudo cargar el lector de PDF (pdf.js). Revisa tu conexión a internet e inténtalo de nuevo.'); });
   }
   function collectRows(tc, rows){
     // agrupa items de texto por su coordenada Y (fila)
@@ -1020,23 +1031,31 @@
     // Fecha (línea "Bogotá, ... de ... de ...")
     var fecha='';
     for(var i=0;i<lines.length;i++){ if(/^Bogot/i.test(lines[i]) && /\sde\s/i.test(lines[i])){ fecha=lines[i].trim(); break; } }
-    // Evento (3 columnas por posición X)
+    // Evento: 3 columnas detectadas por los huecos horizontales entre tokens
     var evF='',evH='',evP='';
-    for(var i=0;i<lines.length;i++){
-      var c=comp(lines[i]);
-      if(c.indexOf('HORARIO')>=0 && c.indexOf('PERSONAS')>=0){
-        var lt=rows[i].tokens, hx=null, px=null;
-        lt.forEach(function(t){ var u=strip(t.str).toUpperCase(); if(hx===null && u.indexOf('HORARIO')>=0) hx=t.x; if(px===null && (u.indexOf('N.')>=0||u.indexOf('N°')>=0||u.indexOf('Nº')>=0)) px=t.x; });
-        if(px===null){ lt.forEach(function(t){ if(px===null && strip(t.str).toUpperCase().indexOf('PERSONAS')>=0) px=t.x; }); }
-        var col=['','',''];
-        for(var r=i+1;r<rows.length;r++){
-          if(comp(lines[r]).indexOf('DETALLEDELACOTIZ')>=0) break;
-          rows[r].tokens.forEach(function(t){
-            var ci=(px!==null && t.x>=px-6)?2:(hx!==null && t.x>=hx-6)?1:0;
-            col[ci]+=(col[ci]?' ':'')+t.str;
-          });
-        }
-        evF=col[0].trim(); evH=col[1].trim(); evP=col[2].trim(); break;
+    var evStart=-1;
+    for(var i=0;i<lines.length;i++){ if(comp(lines[i]).indexOf('INFORMACIONDELEVENTO')>=0){ evStart=i; break; } }
+    if(evStart>=0){
+      var etoks=[];
+      for(var r=evStart+1;r<rows.length;r++){
+        var cr=comp(lines[r]);
+        if(cr.indexOf('DETALLEDELACOTIZ')>=0) break;
+        if(cr.indexOf('HORARIO')>=0 && cr.indexOf('PERSONAS')>=0) continue; // saltar fila de etiquetas
+        if(cr.indexOf('FECHA')>=0 && cr.indexOf('DELEVENTO')>=0) continue;
+        rows[r].tokens.forEach(function(t){ if(t.str.trim()) etoks.push({x:t.x, y:rows[r].y, str:t.str}); });
+      }
+      if(etoks.length){
+        var byx=etoks.slice().sort(function(a,b){return a.x-b.x;});
+        var gaps=[];
+        for(var k=1;k<byx.length;k++){ gaps.push({g:byx[k].x-byx[k-1].x, at:byx[k].x}); }
+        gaps.sort(function(a,b){return b.g-a.g;});
+        var bb=[]; if(gaps[0]) bb.push(gaps[0].at); if(gaps[1]) bb.push(gaps[1].at);
+        bb.sort(function(a,b){return a-b;});
+        var b1=bb[0], b2=bb[1];
+        var col=[[],[],[]];
+        etoks.forEach(function(t){ var ci=0; if(b2!=null && t.x>=b2) ci=2; else if(b1!=null && t.x>=b1) ci=1; col[ci].push(t); });
+        function joinC(a){ a.sort(function(p,q){ return (q.y-p.y)||(p.x-q.x); }); return a.map(function(t){return t.str;}).join(' ').replace(/\s+/g,' ').trim(); }
+        evF=joinC(col[0]); evH=joinC(col[1]); evP=joinC(col[2]);
       }
     }
     // Ítems entre "DETALLE DE LA COTIZACIÓN" y "Subtotal"
